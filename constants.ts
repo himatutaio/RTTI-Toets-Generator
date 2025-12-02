@@ -1,8 +1,15 @@
+
 export const DEFAULT_RTTI = {
   R: 25,
   T1: 40,
   T2: 25,
   I: 10,
+};
+
+export const DEFAULT_KTI = {
+  K: 30,
+  T: 50,
+  I: 20,
 };
 
 export const MOCK_TEST_DATA = {

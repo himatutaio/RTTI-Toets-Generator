@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { TestConfiguration, GeneratedTest, SearchResult } from "../types";
 
@@ -47,18 +48,69 @@ export const suggestTopics = async (subject: string, level: string): Promise<{ t
   }
 };
 
-export const generateRTTITest = async (config: TestConfiguration): Promise<GeneratedTest> => {
+export const generateTest = async (config: TestConfiguration): Promise<GeneratedTest> => {
   if (!process.env.API_KEY) {
     throw new Error("API Key ontbreekt");
   }
 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const isKTI = config.taxonomy === 'KTI';
 
-  // Define the JSON schema for the output
+  // Construct the specific prompt based on Taxonomy
+  let systemPrompt = "";
+  let distributionPrompt = "";
+  let matrixColumns: string[] = [];
+
+  if (isKTI) {
+    matrixColumns = ["K", "T", "I"];
+    distributionPrompt = `
+      KTI Verdeling:
+      - K (Kennis): ${config.distribution.K}%
+      - T (Toepassen): ${config.distribution.T}%
+      - I (Inzicht): ${config.distribution.I}%
+    `;
+    systemPrompt = `
+      Je bent een expert en onderwijskundige gespecialiseerd in KTI-toetsing (Kennis, Toepassen, Inzicht).
+      Genereer een volledige KTI-toets.
+      
+      Doel: Genereer een volledige KTI-toets, een KTI-matrix, een antwoordmodel en een overzicht van de leerdoelen.
+      
+      Wat AI moet genereren:
+      A. KTI-toetsmatrijs: Verdeling van vragen per onderwerp en per niveau (K/T/I).
+      B. Volledige KTI-toets: Genummerde vragen met K/T/I-label.
+      C. Antwoordmodel: Korte uitleg waarom de vraag K/T/I is.
+      D. Overzicht leerdoelen: Koppeling leerdoel -> vraagnummer(s).
+      E. Toetsanalyse-sjabloon: Tabel om resultaten per K/T/I in te vullen.
+    `;
+  } else {
+    // RTTI
+    matrixColumns = ["R", "T1", "T2", "I"];
+    distributionPrompt = `
+      RTTI Verdeling:
+      - R (Reproductie): ${config.distribution.R}%
+      - T1 (Training 1): ${config.distribution.T1}%
+      - T2 (Training 2): ${config.distribution.T2}%
+      - I (Inzicht): ${config.distribution.I}%
+    `;
+    systemPrompt = `
+      Je bent een expert en onderwijskundige gespecialiseerd in RTTI-toetsing.
+      Genereer een volledige RTTI-toets.
+      
+      Wat AI moet genereren:
+      A. RTTI-toetsmatrijs: Verdeling van vragen per onderwerp en per denkniveau (R/T1/T2/I).
+      B. Volledige RTTI-toets: Per vraag het RTTI-label.
+      C. Antwoordmodel: Per vraag uitleg waarom het R/T1/T2/I is.
+      D. Overzicht leerdoelen: Koppeling leerdoel -> vraagnummer(s).
+      E. Toetsanalyse-sjabloon.
+    `;
+  }
+
+  // Define JSON Schema
   const responseSchema: Schema = {
     type: Type.OBJECT,
     properties: {
       title: { type: Type.STRING },
+      taxonomy: { type: Type.STRING, enum: [config.taxonomy] },
       introduction: { type: Type.STRING },
       questions: {
         type: Type.ARRAY,
@@ -67,12 +119,12 @@ export const generateRTTITest = async (config: TestConfiguration): Promise<Gener
           properties: {
             id: { type: Type.INTEGER },
             text: { type: Type.STRING },
-            rtti: { type: Type.STRING, enum: ["R", "T1", "T2", "I"] },
+            taxonomyLabel: { type: Type.STRING, enum: isKTI ? ["K", "T", "I"] : ["R", "T1", "T2", "I"] },
             type: { type: Type.STRING, enum: ["Multiple Choice", "Open", "Other"] },
             options: { type: Type.ARRAY, items: { type: Type.STRING } },
             points: { type: Type.INTEGER },
           },
-          required: ["id", "text", "rtti", "type", "points"],
+          required: ["id", "text", "taxonomyLabel", "type", "points"],
         },
       },
       matrix: {
@@ -81,12 +133,10 @@ export const generateRTTITest = async (config: TestConfiguration): Promise<Gener
           type: Type.OBJECT,
           properties: {
             topic: { type: Type.STRING },
-            r: { type: Type.INTEGER },
-            t1: { type: Type.INTEGER },
-            t2: { type: Type.INTEGER },
-            i: { type: Type.INTEGER },
+            // Allow dynamic keys based on taxonomy
+            ...matrixColumns.reduce((acc, col) => ({ ...acc, [col.toLowerCase()]: { type: Type.INTEGER } }), {}),
           },
-          required: ["topic", "r", "t1", "t2", "i"],
+          required: ["topic", ...matrixColumns.map(c => c.toLowerCase())],
         },
       },
       answers: {
@@ -115,23 +165,19 @@ export const generateRTTITest = async (config: TestConfiguration): Promise<Gener
       },
       analysisInstructions: { type: Type.STRING },
     },
-    required: ["title", "questions", "matrix", "answers", "goalMapping", "analysisInstructions"],
+    required: ["title", "taxonomy", "questions", "matrix", "answers", "goalMapping", "analysisInstructions"],
   };
 
-  const prompt = `
-    Je bent een expert en onderwijskundige gespecialiseerd in RTTI-toetsing.
-    Genereer een volledige RTTI-toets op basis van de volgende configuratie:
+  const finalPrompt = `
+    ${systemPrompt}
 
+    Configuratie:
     Vak: ${config.subject}
     Niveau: ${config.level}
     Onderwerpen: ${config.topics}
     Leerdoelen: ${config.learningGoals}
     
-    RTTI Verdeling:
-    - R: ${config.rttiDistribution.R}%
-    - T1: ${config.rttiDistribution.T1}%
-    - T2: ${config.rttiDistribution.T2}%
-    - I: ${config.rttiDistribution.I}%
+    ${distributionPrompt}
     
     Randvoorwaarden:
     - Totale Duur: ${config.duration} minuten
@@ -140,22 +186,14 @@ export const generateRTTITest = async (config: TestConfiguration): Promise<Gener
     - Taalniveau: ${config.languageLevel}
     - Extra Eisen: ${config.extraRequirements}
 
-    Taak:
-    1. Maak een Toetsmatrijs (A) die de verdeling verifieert.
-    2. Maak de Vragen (B) met correcte RTTI-labels. Zorg voor nieuwe contexten bij T2 en I vragen.
-    3. Maak het Antwoordmodel (C) met beoordelingscriteria en RTTI-toelichting.
-    4. Koppel vragen aan Leerdoelen (D).
-    5. Geef instructies voor de docent over het analyseren van de resultaten (E).
-
     Genereer alle inhoud (vragen, antwoorden, toelichtingen) in het NEDERLANDS.
     Reageer strikt in JSON-formaat dat overeenkomt met het opgegeven schema.
   `;
 
   try {
-    // Using gemini-3-pro-preview for complex reasoning and structure compliance
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
-      contents: prompt,
+      contents: finalPrompt,
       config: {
         responseMimeType: "application/json",
         responseSchema: responseSchema,

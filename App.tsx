@@ -1,20 +1,27 @@
+
 import React, { useState } from 'react';
 import { DistributionSlider } from './components/DistributionSlider';
 import { TestRenderer } from './components/TestRenderer';
-import { suggestTopics, generateRTTITest } from './services/geminiService';
-import { TestConfiguration, GeneratedTest, SearchResult } from './types';
-import { DEFAULT_RTTI, QUESTION_TYPE_OPTIONS } from './constants';
-import { Sparkles, BookOpen, Loader2, Search, AlertCircle, FileText, Settings, Target, CheckCircle, Plus, Trash2 } from 'lucide-react';
+import { suggestTopics, generateTest } from './services/geminiService';
+import { TestConfiguration, GeneratedTest, SearchResult, TaxonomyType } from './types';
+import { DEFAULT_RTTI, DEFAULT_KTI, QUESTION_TYPE_OPTIONS } from './constants';
+import { Sparkles, BookOpen, Loader2, Search, AlertCircle, FileText, Settings, Target, CheckCircle, Plus, Trash2, Sliders } from 'lucide-react';
 
 const App: React.FC = () => {
   const [step, setStep] = useState<'input' | 'generating' | 'result'>('input');
   
+  // Taxonomy State
+  const [taxonomy, setTaxonomy] = useState<TaxonomyType>('RTTI');
+
   // Form State
   const [subject, setSubject] = useState('');
   const [level, setLevel] = useState('');
   const [topics, setTopics] = useState('');
   const [learningGoals, setLearningGoals] = useState('');
-  const [rtti, setRtti] = useState(DEFAULT_RTTI);
+  
+  // Distribution State (Flexible for RTTI or KTI)
+  const [distribution, setDistribution] = useState<any>(DEFAULT_RTTI);
+
   const [duration, setDuration] = useState(60);
   const [qCount, setQCount] = useState(15);
   
@@ -36,8 +43,14 @@ const App: React.FC = () => {
   const [generatedTest, setGeneratedTest] = useState<GeneratedTest | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const totalRttiPercentage = rtti.R + rtti.T1 + rtti.T2 + rtti.I;
-  const isRttiValid = totalRttiPercentage === 100;
+  // Switch taxonomy handler
+  const handleTaxonomyChange = (type: TaxonomyType) => {
+    setTaxonomy(type);
+    setDistribution(type === 'RTTI' ? DEFAULT_RTTI : DEFAULT_KTI);
+  };
+
+  const totalDistPercentage = Object.values(distribution).reduce((a: any, b: any) => a + b, 0);
+  const isDistValid = totalDistPercentage === 100;
   
   const totalQTypePercentage = selectedQTypes.reduce((sum, item) => sum + item.percentage, 0);
   const isQTypeValid = totalQTypePercentage === 100;
@@ -73,7 +86,7 @@ const App: React.FC = () => {
   };
 
   const handleGenerate = async () => {
-    if (!isRttiValid) return;
+    if (!isDistValid) return;
     if (!isQTypeValid) {
         setError("De verdeling van vraagtypes moet in totaal 100% zijn.");
         return;
@@ -88,11 +101,12 @@ const App: React.FC = () => {
       .join(', ');
 
     const config: TestConfiguration = {
+      taxonomy,
       subject,
       level,
       topics,
       learningGoals,
-      rttiDistribution: rtti,
+      distribution: distribution,
       duration,
       questionCount: qCount,
       questionTypes: questionTypesString || "Gevarieerd (Open en Gesloten vragen)",
@@ -101,7 +115,7 @@ const App: React.FC = () => {
     };
 
     try {
-      const result = await generateRTTITest(config);
+      const result = await generateTest(config);
       setGeneratedTest(result);
       setStep('result');
     } catch (e: any) {
@@ -129,7 +143,7 @@ const App: React.FC = () => {
               <Sparkles size={24} className="text-yellow-300" />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight">RTTI-Toets Generator</h1>
+              <h1 className="text-xl font-bold tracking-tight">Toets Generator</h1>
               <p className="text-xs text-indigo-200">AI-ondersteunde toetsconstructie</p>
             </div>
           </div>
@@ -144,15 +158,35 @@ const App: React.FC = () => {
           <div className="flex flex-col items-center justify-center h-96 gap-4">
             <Loader2 size={48} className="animate-spin text-indigo-600" />
             <h2 className="text-2xl font-semibold text-gray-800">Toets wordt gegenereerd...</h2>
-            <p className="text-gray-500">Gemini analyseert leerdoelen en structureert de RTTI-matrix.</p>
+            <p className="text-gray-500">Gemini analyseert leerdoelen en structureert de {taxonomy} matrix.</p>
           </div>
         )}
 
         {step === 'input' && (
           <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
             <div className="bg-gradient-to-r from-indigo-50 to-blue-50 p-6 border-b border-gray-200">
-              <h2 className="text-2xl font-bold text-gray-900 mb-1">Toets Configureren</h2>
-              <p className="text-gray-600">Vul de details in om een perfect gebalanceerde RTTI-toets te genereren.</p>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-1">Toets Configureren</h2>
+                  <p className="text-gray-600">Kies uw taxonomie en vul de details in.</p>
+                </div>
+                
+                {/* Taxonomy Toggle */}
+                <div className="bg-white p-1 rounded-lg border border-gray-200 shadow-sm flex">
+                   <button 
+                     onClick={() => handleTaxonomyChange('RTTI')}
+                     className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${taxonomy === 'RTTI' ? 'bg-indigo-600 text-white shadow' : 'text-gray-600 hover:bg-gray-50'}`}
+                   >
+                     RTTI
+                   </button>
+                   <button 
+                     onClick={() => handleTaxonomyChange('KTI')}
+                     className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${taxonomy === 'KTI' ? 'bg-indigo-600 text-white shadow' : 'text-gray-600 hover:bg-gray-50'}`}
+                   >
+                     KTI
+                   </button>
+                </div>
+              </div>
             </div>
 
             <div className="p-6 md:p-8 space-y-8">
@@ -245,28 +279,38 @@ const App: React.FC = () => {
                 </div>
               </section>
 
-              {/* Section 3: RTTI Matrix */}
+              {/* Section 3: Taxonomy Distribution */}
               <section className="space-y-4">
                 <div className="flex items-center gap-2 text-indigo-600 font-semibold border-b pb-2">
                   <Settings size={20} />
-                  <h3>3. RTTI Verdeling</h3>
+                  <h3>3. {taxonomy} Verdeling</h3>
                 </div>
                 
                 <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
-                      <DistributionSlider label="Reproductie (R)" value={rtti.R} color="bg-blue-500" onChange={(v) => setRtti({...rtti, R: v})} />
-                      <DistributionSlider label="Training 1 (T1)" value={rtti.T1} color="bg-green-500" onChange={(v) => setRtti({...rtti, T1: v})} />
-                      <DistributionSlider label="Training 2 (T2)" value={rtti.T2} color="bg-yellow-500" onChange={(v) => setRtti({...rtti, T2: v})} />
-                      <DistributionSlider label="Inzicht (I)" value={rtti.I} color="bg-purple-500" onChange={(v) => setRtti({...rtti, I: v})} />
+                      {taxonomy === 'RTTI' ? (
+                        <>
+                          <DistributionSlider label="Reproductie (R)" value={distribution.R} color="bg-blue-500" onChange={(v) => setDistribution({...distribution, R: v})} />
+                          <DistributionSlider label="Training 1 (T1)" value={distribution.T1} color="bg-green-500" onChange={(v) => setDistribution({...distribution, T1: v})} />
+                          <DistributionSlider label="Training 2 (T2)" value={distribution.T2} color="bg-yellow-500" onChange={(v) => setDistribution({...distribution, T2: v})} />
+                          <DistributionSlider label="Inzicht (I)" value={distribution.I} color="bg-purple-500" onChange={(v) => setDistribution({...distribution, I: v})} />
+                        </>
+                      ) : (
+                        <>
+                           <DistributionSlider label="Kennis (K)" value={distribution.K} color="bg-blue-500" onChange={(v) => setDistribution({...distribution, K: v})} />
+                           <DistributionSlider label="Toepassen (T)" value={distribution.T} color="bg-green-500" onChange={(v) => setDistribution({...distribution, T: v})} />
+                           <DistributionSlider label="Inzicht (I)" value={distribution.I} color="bg-purple-500" onChange={(v) => setDistribution({...distribution, I: v})} />
+                        </>
+                      )}
                    </div>
                    
                    <div className="mt-4 flex items-center justify-between">
                       <span className="text-sm font-medium text-gray-600">Totale Verdeling</span>
-                      <span className={`text-lg font-bold ${isRttiValid ? 'text-green-600' : 'text-red-600'}`}>
-                        {totalRttiPercentage}%
+                      <span className={`text-lg font-bold ${isDistValid ? 'text-green-600' : 'text-red-600'}`}>
+                        {totalDistPercentage}%
                       </span>
                    </div>
-                   {!isRttiValid && (
+                   {!isDistValid && (
                      <p className="text-red-500 text-xs mt-1 text-right">Totaal moet 100% zijn</p>
                    )}
                 </div>
@@ -402,11 +446,11 @@ const App: React.FC = () => {
               <div className="pt-4 flex justify-end">
                 <button
                   onClick={handleGenerate}
-                  disabled={!isRttiValid || !subject || !topics || !isQTypeValid}
+                  disabled={!isDistValid || !subject || !topics || !isQTypeValid}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-bold text-lg shadow-lg shadow-indigo-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   <Sparkles size={20} />
-                  Genereer Toets
+                  Genereer {taxonomy}-Toets
                 </button>
               </div>
 

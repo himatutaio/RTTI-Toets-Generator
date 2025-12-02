@@ -1,16 +1,24 @@
-export interface RTTIDistribution {
-  R: number;
-  T1: number;
-  T2: number;
-  I: number;
+
+export type TaxonomyType = 'RTTI' | 'KTI';
+
+export interface TaxonomyDistribution {
+  // RTTI
+  R?: number;
+  T1?: number;
+  T2?: number;
+  I?: number;
+  // KTI
+  K?: number;
+  T?: number;
 }
 
 export interface TestConfiguration {
+  taxonomy: TaxonomyType;
   subject: string;
   level: string;
   topics: string;
   learningGoals: string;
-  rttiDistribution: RTTIDistribution;
+  distribution: TaxonomyDistribution;
   duration: number; // minutes
   questionCount: number;
   questionTypes: string; // e.g., "70% MC, 30% Open"
@@ -22,7 +30,7 @@ export interface TestConfiguration {
 export interface Question {
   id: number;
   text: string;
-  rtti: 'R' | 'T1' | 'T2' | 'I';
+  taxonomyLabel: string; // 'R'|'T1'|'T2'|'I' OR 'K'|'T'|'I'
   type: 'Multiple Choice' | 'Open' | 'Other';
   options?: string[]; // For MC
   points: number;
@@ -32,7 +40,7 @@ export interface AnswerKeyItem {
   questionId: number;
   answer: string;
   criteria?: string; // For open questions
-  explanation: string; // Why is it R/T1/T2/I?
+  explanation: string; // Why is it R/T1... or K/T...?
 }
 
 export interface LearningGoalMap {
@@ -42,14 +50,13 @@ export interface LearningGoalMap {
 
 export interface TestMatrixItem {
   topic: string;
-  r: number; // count
-  t1: number; // count
-  t2: number; // count
-  i: number; // count
+  // Dynamic counts based on taxonomy
+  [key: string]: number | string; 
 }
 
 export interface GeneratedTest {
   title: string;
+  taxonomy: TaxonomyType;
   introduction: string;
   questions: Question[];
   matrix: TestMatrixItem[];

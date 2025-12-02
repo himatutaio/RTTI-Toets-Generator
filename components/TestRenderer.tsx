@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { GeneratedTest, Question } from '../types';
 import { Printer, CheckCircle, Brain, BookOpen, BarChart2, Layers, FileText, Share2, Copy, Check, ChevronDown } from 'lucide-react';
@@ -16,6 +17,11 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
   const shareMenuRef = useRef<HTMLDivElement>(null);
 
+  // Determine taxonomy columns
+  const taxonomyColumns = test.taxonomy === 'KTI' 
+    ? [{key: 'k', label: 'K', color: 'bg-blue-50/30 text-blue-800'}, {key: 't', label: 'T', color: 'bg-green-50/30 text-green-800'}, {key: 'i', label: 'I', color: 'bg-purple-50/30 text-purple-800'}]
+    : [{key: 'r', label: 'R', color: 'bg-blue-50/30 text-blue-800'}, {key: 't1', label: 'T1', color: 'bg-green-50/30 text-green-800'}, {key: 't2', label: 'T2', color: 'bg-yellow-50/30 text-yellow-800'}, {key: 'i', label: 'I', color: 'bg-purple-50/30 text-purple-800'}];
+
   // Close share menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -29,9 +35,7 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
 
   const handlePrint = () => {
     setIsShareOpen(false);
-    // Switch to full view automatically for PDF generation/Printing
     setViewMode('full');
-    // Small timeout to allow React to render the full view before printing
     setTimeout(() => {
       window.print();
     }, 500);
@@ -49,7 +53,7 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
       addSectionHeader(`DEEL 1: TOETS - ${test.title}`);
       text += `${test.introduction}\n\n`;
       test.questions.forEach((q, i) => {
-        text += `${i + 1}. [${q.rtti}] ${q.text} (${q.points} pt)\n`;
+        text += `${i + 1}. [${q.taxonomyLabel}] ${q.text} (${q.points} pt)\n`;
         if (q.type === 'Multiple Choice' && q.options) {
           q.options.forEach((opt) => text += `   - ${opt}\n`);
         }
@@ -63,15 +67,18 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
         const q = test.questions.find(qu => qu.id === a.questionId);
         text += `${i + 1}. Antwoord: ${a.answer}\n`;
         if (a.criteria) text += `   Criteria: ${a.criteria}\n`;
-        text += `   RTTI: ${q?.rtti || '-'} | Toelichting: ${a.explanation}\n\n`;
+        text += `   ${test.taxonomy}: ${q?.taxonomyLabel || '-'} | Toelichting: ${a.explanation}\n\n`;
       });
     };
 
     const formatMatrix = () => {
       addSectionHeader("DEEL 3: MATRIJS & DOELEN");
-      text += "Onderwerp | R | T1 | T2 | I | Totaal\n";
+      const headers = taxonomyColumns.map(c => c.label).join(' | ');
+      text += `Onderwerp | ${headers} | Totaal\n`;
       test.matrix.forEach(row => {
-        text += `${row.topic} | ${row.r} | ${row.t1} | ${row.t2} | ${row.i} | ${row.r + row.t1 + row.t2 + row.i}\n`;
+        const rowCounts = taxonomyColumns.map(c => row[c.key] || 0);
+        const rowTotal = rowCounts.reduce((a: any, b: any) => a + b, 0);
+        text += `${row.topic} | ${rowCounts.join(' | ')} | ${rowTotal}\n`;
       });
       text += "\nLeerdoelen:\n";
       test.goalMapping.forEach(map => {
@@ -88,7 +95,7 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
     };
 
     if (scope === 'full') {
-      text += `${test.title.toUpperCase()}\n\n`;
+      text += `${test.title.toUpperCase()} (${test.taxonomy})\n\n`;
       formatQuestions();
       formatAnswers();
       formatMatrix();
@@ -114,16 +121,18 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
     });
   };
 
-  const renderBadge = (rtti: string) => {
+  const renderBadge = (label: string) => {
     const colors: Record<string, string> = {
       'R': 'bg-blue-100 text-blue-800 border-blue-200',
       'T1': 'bg-green-100 text-green-800 border-green-200',
       'T2': 'bg-yellow-100 text-yellow-800 border-yellow-200',
       'I': 'bg-purple-100 text-purple-800 border-purple-200',
+      'K': 'bg-blue-100 text-blue-800 border-blue-200',
+      'T': 'bg-green-100 text-green-800 border-green-200',
     };
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${colors[rtti] || 'bg-gray-100 text-gray-800'}`}>
-        {rtti}
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${colors[label] || 'bg-gray-100 text-gray-800'}`}>
+        {label}
       </span>
     );
   };
@@ -211,7 +220,7 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
       </div>
 
       <div className={`bg-white rounded-xl shadow-xl print:shadow-none print:border-none ${viewMode === 'tabs' ? 'overflow-hidden' : ''}`}>
-        {/* Tabs Navigation - Only visible in Tabs mode and NOT printing */}
+        {/* Tabs Navigation */}
         {viewMode === 'tabs' && (
           <div className="border-b border-gray-200 bg-gray-50 no-print overflow-x-auto">
             <nav className="flex -mb-px" aria-label="Tabs">
@@ -242,15 +251,18 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
         {/* Content Area */}
         <div className="p-8 print:p-0">
           
-          {/* Main Title - Always visible at top of doc */}
+          {/* Main Title */}
           <div className="mb-8 pb-6 border-b border-gray-200">
             <div className="flex justify-between items-start">
               <div>
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">{test.title}</h1>
+                <div className="flex items-center gap-2 mb-2">
+                   <h1 className="text-3xl font-bold text-gray-900">{test.title}</h1>
+                   <span className="px-2 py-1 rounded bg-indigo-100 text-indigo-800 text-xs font-bold border border-indigo-200">{test.taxonomy}</span>
+                </div>
                 <p className="text-gray-600 italic max-w-2xl">{test.introduction}</p>
               </div>
               <div className="text-right hidden sm:block print:block">
-                 <div className="text-sm text-gray-500">Gegenereerd met RTTI-Generator</div>
+                 <div className="text-sm text-gray-500">Gegenereerd met {test.taxonomy}-Generator</div>
                  <div className="text-xs text-gray-400">{new Date().toLocaleDateString('nl-NL')}</div>
               </div>
             </div>
@@ -268,7 +280,7 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
               <div className="no-print mb-6 p-4 bg-blue-50 text-blue-800 rounded-lg text-sm border border-blue-100 flex items-start gap-3">
                 <div className="mt-0.5"><BookOpen size={16}/></div>
                  <div>
-                  <strong>Docent weergave:</strong> U ziet hier de vragen inclusief RTTI labels. Op de print-versie voor studenten worden deze labels en de antwoorden verborgen, maar de layout blijft behouden.
+                  <strong>Docent weergave:</strong> U ziet hier de vragen inclusief {test.taxonomy} labels. Op de print-versie voor studenten worden deze labels en de antwoorden verborgen.
                 </div>
               </div>
               
@@ -281,7 +293,7 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
                           {idx + 1}
                         </span>
                         <span className="text-sm font-medium text-gray-500 uppercase tracking-wide print:hidden">
-                          {renderBadge(q.rtti)}
+                          {renderBadge(q.taxonomyLabel)}
                         </span>
                       </div>
                       <span className="text-sm font-semibold text-gray-900 bg-white px-2 py-1 rounded border border-gray-200 print:border-none">
@@ -335,7 +347,7 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
                     <tr>
                       <th className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6 w-16">Nr.</th>
                       <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Antwoord & Criteria</th>
-                      <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 w-24">RTTI</th>
+                      <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 w-24">{test.taxonomy}</th>
                       <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 w-1/3">Toelichting</th>
                     </tr>
                   </thead>
@@ -356,7 +368,7 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
                             )}
                           </td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500 align-top">
-                             {question ? renderBadge(question.rtti) : '-'}
+                             {question ? renderBadge(question.taxonomyLabel) : '-'}
                           </td>
                           <td className="px-3 py-4 text-sm text-gray-500 italic align-top">
                             {ans.explanation}
@@ -388,10 +400,9 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
                     <thead className="bg-indigo-50">
                       <tr>
                         <th className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">Onderwerp</th>
-                        <th className="px-3 py-3.5 text-center text-sm font-semibold text-blue-800">R</th>
-                        <th className="px-3 py-3.5 text-center text-sm font-semibold text-green-800">T1</th>
-                        <th className="px-3 py-3.5 text-center text-sm font-semibold text-yellow-800">T2</th>
-                        <th className="px-3 py-3.5 text-center text-sm font-semibold text-purple-800">I</th>
+                        {taxonomyColumns.map(col => (
+                           <th key={col.key} className={`px-3 py-3.5 text-center text-sm font-semibold ${col.color.split(' ')[1]}`}>{col.label}</th>
+                        ))}
                         <th className="px-3 py-3.5 text-center text-sm font-semibold text-gray-900">Totaal</th>
                       </tr>
                     </thead>
@@ -399,12 +410,14 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
                       {test.matrix.map((row, idx) => (
                         <tr key={idx}>
                           <td className="py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">{row.topic}</td>
-                          <td className="px-3 py-4 text-sm text-center text-gray-500 bg-blue-50/30">{row.r}</td>
-                          <td className="px-3 py-4 text-sm text-center text-gray-500 bg-green-50/30">{row.t1}</td>
-                          <td className="px-3 py-4 text-sm text-center text-gray-500 bg-yellow-50/30">{row.t2}</td>
-                          <td className="px-3 py-4 text-sm text-center text-gray-500 bg-purple-50/30">{row.i}</td>
+                          {taxonomyColumns.map(col => (
+                             <td key={col.key} className={`px-3 py-4 text-sm text-center text-gray-500 ${col.color.split(' ')[0]}`}>
+                               {/* Access dynamic key safely */}
+                               {(row as any)[col.key] || 0}
+                             </td>
+                          ))}
                           <td className="px-3 py-4 text-sm text-center font-bold text-gray-900 bg-gray-50">
-                            {row.r + row.t1 + row.t2 + row.i}
+                            {taxonomyColumns.reduce((sum, col) => sum + (Number((row as any)[col.key]) || 0), 0)}
                           </td>
                         </tr>
                       ))}
@@ -456,10 +469,9 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
                       <thead>
                         <tr className="bg-gray-100">
                           <th className="border border-gray-300 p-3 text-left">Naam Student</th>
-                          <th className="border border-gray-300 p-3 w-20 text-center bg-blue-50">R %</th>
-                          <th className="border border-gray-300 p-3 w-20 text-center bg-green-50">T1 %</th>
-                          <th className="border border-gray-300 p-3 w-20 text-center bg-yellow-50">T2 %</th>
-                          <th className="border border-gray-300 p-3 w-20 text-center bg-purple-50">I %</th>
+                          {taxonomyColumns.map(col => (
+                             <th key={col.key} className={`border border-gray-300 p-3 w-20 text-center ${col.color.split(' ')[0].replace('/30', '')}`}>{col.label} %</th>
+                          ))}
                           <th className="border border-gray-300 p-3 w-24 text-center font-bold">Cijfer</th>
                           <th className="border border-gray-300 p-3 w-1/3">Opmerkingen</th>
                         </tr>
@@ -468,10 +480,9 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
                         {[1, 2, 3, 4, 5, 6, 7, 8].map((row) => (
                           <tr key={row}>
                             <td className="border border-gray-300 p-2 h-12"></td>
-                            <td className="border border-gray-300 p-2 bg-blue-50/20"></td>
-                            <td className="border border-gray-300 p-2 bg-green-50/20"></td>
-                            <td className="border border-gray-300 p-2 bg-yellow-50/20"></td>
-                            <td className="border border-gray-300 p-2 bg-purple-50/20"></td>
+                            {taxonomyColumns.map(col => (
+                               <td key={col.key} className={`border border-gray-300 p-2 ${col.color.split(' ')[0].replace('50/30', '50/20')}`}></td>
+                            ))}
                             <td className="border border-gray-300 p-2 bg-gray-50"></td>
                             <td className="border border-gray-300 p-2"></td>
                           </tr>
