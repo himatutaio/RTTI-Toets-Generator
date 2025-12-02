@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="nl">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -10,6 +10,8 @@
       body {
         font-family: 'Inter', sans-serif;
         background-color: #f3f4f6;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
       }
       /* Custom scrollbar for better aesthetics */
       ::-webkit-scrollbar {
@@ -27,17 +29,37 @@
         background: #94a3b8;
       }
       @media print {
+        @page {
+          margin: 1.5cm;
+        }
+        body {
+          background-color: white;
+          margin: 0;
+          padding: 0;
+          overflow: visible !important;
+          height: auto !important;
+        }
+        #root {
+          display: block;
+          overflow: visible !important;
+          height: auto !important;
+        }
         .no-print {
           display: none !important;
         }
         .print-only {
           display: block !important;
         }
-        body {
-          background-color: white;
-        }
         .page-break {
           page-break-before: always;
+        }
+        .break-inside-avoid {
+          break-inside: avoid;
+        }
+        /* Ensure shadows and backgrounds don't mess up print */
+        * {
+          box-shadow: none !important;
+          text-shadow: none !important;
         }
       }
     </style>
