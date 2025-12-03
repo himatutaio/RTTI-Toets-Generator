@@ -32,8 +32,10 @@ export const Login: React.FC<Props> = ({ onSwitch }) => {
     setError(null);
 
     try {
-      // 1. Eerst inloggen bij Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      // We loggen alleen in. De App.tsx luistert naar de 'SIGNED_IN' event
+      // en voert dan de validatie van de 'school_requests' tabel uit.
+      // Dit voorkomt dat we hier checks doen die afgebroken worden als de component unmount.
+      const { error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -48,43 +50,9 @@ export const Login: React.FC<Props> = ({ onSwitch }) => {
         return;
       }
 
-      // 2. Controleren of de gebruiker is goedgekeurd in de database
-      const { data: requestData, error: requestError } = await supabase
-        .from('school_requests')
-        .select('status')
-        .eq('email', email)
-        .maybeSingle();
+      // Als login lukt, triggert supabase.auth.onAuthStateChange in App.tsx.
+      // We hoeven hier niets meer te doen. De App zal overschakelen naar de laad-status.
 
-      if (requestError) {
-         console.error("Login verification check failed:", requestError);
-         await supabase.auth.signOut();
-         
-         const msg = getErrorMessage(requestError);
-         if (msg.includes('relation') && msg.includes('does not exist')) {
-            setError('Systeemfout: Toegangstabel ontbreekt. Neem contact op met de beheerder.');
-         } else {
-            setError(`Fout bij controleren rechten: ${msg}`);
-         }
-         
-         setLoading(false);
-         return;
-      }
-
-      // Als er geen record is, of de status is niet 'approved'
-      if (!requestData || requestData.status !== 'approved') {
-        await supabase.auth.signOut();
-        
-        if (requestData && requestData.status === 'pending') {
-          setError('Je account is nog in behandeling. Wacht op goedkeuring van de beheerder.');
-        } else {
-          setError('Je account heeft geen toegang (meer) tot deze applicatie. Neem contact op met de beheerder.');
-        }
-        setLoading(false);
-        return;
-      }
-
-      // 3. Alles OK
-      
     } catch (err: any) {
       console.error("Unexpected Login error:", err);
       setError(getErrorMessage(err));

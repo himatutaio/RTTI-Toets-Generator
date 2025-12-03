@@ -57,7 +57,7 @@ const App: React.FC = () => {
   const [generatedTest, setGeneratedTest] = useState<GeneratedTest | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Validate user approval status
+  // Validate user approval status with timeout
   const validateSession = async (currentSession: Session | null) => {
     if (!currentSession?.user?.email) {
       setAuthLoading(false);
@@ -65,11 +65,20 @@ const App: React.FC = () => {
     }
 
     try {
-      const { data, error } = await supabase
+      // Create a timeout promise
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Timeout: Controle duurt te lang")), 10000)
+      );
+
+      // Perform DB check
+      const dbPromise = supabase
         .from('school_requests')
         .select('status')
         .eq('email', currentSession.user.email)
-        .maybeSingle(); 
+        .maybeSingle();
+
+      // Race against timeout
+      const { data, error } = await Promise.race([dbPromise, timeoutPromise]) as any;
 
       // If validation error (e.g. table not found, RLS) or not approved
       if (error) {
@@ -102,27 +111,21 @@ const App: React.FC = () => {
   useEffect(() => {
     let isMounted = true;
 
-    // 1. Check current session on mount
-    const initAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (isMounted) {
-        if (session) {
-          await validateSession(session);
-        } else {
-          setAuthLoading(false);
-        }
-      }
-    };
-    initAuth();
-
-    // 2. Listen for auth changes
+    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       if (!isMounted) return;
 
-      if (event === 'SIGNED_IN' && newSession) {
-         // User just logged in (e.g. from Login component)
+      console.log("Auth Event:", event);
+
+      if (event === 'INITIAL_SESSION') {
+         if (newSession) {
+            await validateSession(newSession);
+         } else {
+            setAuthLoading(false);
+         }
+      } else if (event === 'SIGNED_IN' && newSession) {
          setAuthLoading(true);
          await validateSession(newSession);
       } else if (event === 'SIGNED_OUT') {
@@ -135,6 +138,15 @@ const App: React.FC = () => {
       }
     });
 
+    // Check session explicitly once on mount to handle edge cases
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (isMounted && session && authLoading) {
+         validateSession(session);
+      } else if (isMounted && !session) {
+         setAuthLoading(false);
+      }
+    });
+
     return () => {
       isMounted = false;
       subscription.unsubscribe();
@@ -142,8 +154,9 @@ const App: React.FC = () => {
   }, []);
 
   const handleLogout = async () => {
+    setAuthLoading(true);
     await supabase.auth.signOut();
-    // State updates handled by onAuthStateChange(SIGNED_OUT)
+    // onAuthStateChange will handle state updates
   };
 
   // Switch taxonomy handler
@@ -230,11 +243,18 @@ const App: React.FC = () => {
   // 1. Loading State for Auth
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 flex-col gap-6">
         <div className="flex flex-col items-center gap-4">
            <Loader2 size={48} className="animate-spin text-indigo-600" />
            <p className="text-gray-500 font-medium">Bezig met controleren...</p>
         </div>
+        {/* Emergency Logout Button if stuck */}
+        <button 
+          onClick={handleLogout}
+          className="text-xs text-red-500 hover:text-red-700 underline"
+        >
+          Duurt het te lang? Klik hier om uit te loggen.
+        </button>
       </div>
     );
   }
