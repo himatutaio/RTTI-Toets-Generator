@@ -1,6 +1,7 @@
+
 import React, { useState } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { UserPlus, AlertCircle, Loader2, Mail, CheckCircle } from 'lucide-react';
+import { UserPlus, AlertCircle, Loader2, Mail, School } from 'lucide-react';
 
 interface Props {
   onSwitch: () => void;
@@ -9,6 +10,7 @@ interface Props {
 export const Register: React.FC<Props> = ({ onSwitch }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [schoolName, setSchoolName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -24,12 +26,21 @@ export const Register: React.FC<Props> = ({ onSwitch }) => {
       return;
     }
 
+    if (!schoolName.trim()) {
+      setError('Vul de naam van je school in.');
+      setLoading(false);
+      return;
+    }
+
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: window.location.origin, // Zorgt dat ze terugkomen op de juiste plek
+          emailRedirectTo: window.location.origin,
+          data: {
+            school_name: schoolName, // Slaat de schoolnaam op in het gebruikersprofiel
+          }
         }
       });
 
@@ -40,12 +51,10 @@ export const Register: React.FC<Props> = ({ onSwitch }) => {
           setError('Registreren is mislukt. Probeer het opnieuw.');
         }
       } else {
-        // Als data.user bestaat en er is geen sessie, is email verificatie vereist (standaard in Supabase)
         if (data.user && !data.session) {
            setSuccess(true);
         } else if (data.session) {
-           // Als email verificatie uit staat, loggen ze direct in.
-           // App.tsx handelt de redirect af.
+           // Direct ingelogd
         }
       }
     } catch (err) {
@@ -105,6 +114,21 @@ export const Register: React.FC<Props> = ({ onSwitch }) => {
         )}
 
         <form onSubmit={handleRegister} className="space-y-5">
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-2">Naam van je school</label>
+            <div className="relative">
+              <input
+                type="text"
+                required
+                value={schoolName}
+                onChange={(e) => setSchoolName(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none"
+                placeholder="Bijv. Het Groene College"
+              />
+              <School size={20} className="absolute left-3 top-3.5 text-gray-400" />
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-2">Je e-mailadres</label>
             <input
