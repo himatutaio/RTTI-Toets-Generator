@@ -190,8 +190,9 @@ export const generateTest = async (config: TestConfiguration): Promise<Generated
   `;
 
   try {
+    // Use gemini-2.5-flash for faster generation
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-2.5-flash',
       contents: finalPrompt,
       config: {
         responseMimeType: "application/json",

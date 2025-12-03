@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './services/supabaseClient';
 import { DistributionSlider } from './components/DistributionSlider';
 import { TestRenderer } from './components/TestRenderer';
@@ -9,14 +8,17 @@ import { Register } from './components/Register';
 import { suggestTopics, generateTest } from './services/geminiService';
 import { TestConfiguration, GeneratedTest, SearchResult, TaxonomyType } from './types';
 import { DEFAULT_RTTI, DEFAULT_KTI, QUESTION_TYPE_OPTIONS } from './constants';
-import { Sparkles, BookOpen, Loader2, Search, AlertCircle, FileText, Settings, Target, CheckCircle, Plus, Trash2, MessageSquare, LogOut } from 'lucide-react';
+import { Sparkles, BookOpen, Loader2, Search, AlertCircle, FileText, Settings, Target, CheckCircle, Plus, Trash2, MessageSquare, LogOut, RefreshCw } from 'lucide-react';
 import { Session } from '@supabase/supabase-js';
 
 const App: React.FC = () => {
   // Auth State
   const [session, setSession] = useState<Session | null>(null);
+  const sessionRef = useRef<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showRegister, setShowRegister] = useState(false);
+  
+  // approvalError bevat foutmeldingen over permissies OF technische validatiefouten
   const [approvalError, setApprovalError] = useState<string | null>(null);
 
   const [step, setStep] = useState<'input' | 'generating' | 'result'>('input');
@@ -44,7 +46,21 @@ const App: React.FC = () => {
     { type: 'Meerkeuze', percentage: 50 },
     { type: 'Open vraag / korte antwoord', percentage: 50 }
   ]);
+  
+  // Filter available options for dropdown (Hoisted for useEffect access)
+  const availableOptions = QUESTION_TYPE_OPTIONS.filter(
+    opt => !selectedQTypes.some(selected => selected.type === opt)
+  );
+
   const [selectedDropdownType, setSelectedDropdownType] = useState(QUESTION_TYPE_OPTIONS[0]);
+
+  // Sync selectedDropdownType with availableOptions
+  useEffect(() => {
+    // If current selected type is not available (already added), switch to first available
+    if (availableOptions.length > 0 && !availableOptions.includes(selectedDropdownType)) {
+      setSelectedDropdownType(availableOptions[0]);
+    }
+  }, [selectedQTypes, selectedDropdownType]); // availableOptions is derived from selectedQTypes
 
   const [langLevel, setLangLevel] = useState('Normaal');
   const [extraReq, setExtraReq] = useState('');
@@ -65,9 +81,9 @@ const App: React.FC = () => {
     }
 
     try {
-      // Create a timeout promise
+      // Create a timeout promise (15 seconden is genoeg, 45s is te lang)
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout: Controle duurt te lang")), 10000)
+        setTimeout(() => reject(new Error("Controle duurt te lang. Controleer uw verbinding of probeer het opnieuw.")), 15000)
       );
 
       // Perform DB check
@@ -75,35 +91,51 @@ const App: React.FC = () => {
         .from('school_requests')
         .select('status')
         .eq('email', currentSession.user.email)
-        .maybeSingle();
+        .maybeSingle()
+        .then(res => res); // Ensure promise behavior
 
       // Race against timeout
       const { data, error } = await Promise.race([dbPromise, timeoutPromise]) as any;
 
-      // If validation error (e.g. table not found, RLS) or not approved
+      // Technical error (e.g. RLS or network issue reported by Supabase)
       if (error) {
         console.error("Session validation error:", error);
-        await supabase.auth.signOut();
-        setSession(null);
-        
-        let msg = "Fout bij valideren status";
-        if (error.message) msg += `: ${error.message}`;
-        setApprovalError(msg);
-      } else if (!data || data.status !== 'approved') {
-        await supabase.auth.signOut();
-        setSession(null);
-        setApprovalError("Uw account is (nog) niet goedgekeurd.");
-      } else {
+        // We loggen NIET uit, zodat de gebruiker op 'Retry' kan klikken
+        setApprovalError(`Technisch probleem bij controleren: ${error.message || 'Onbekende fout'}`);
         setSession(currentSession);
+        sessionRef.current = currentSession;
+      } 
+      // Access check
+      else if (!data || data.status !== 'approved') {
+        await supabase.auth.signOut();
+        setSession(null);
+        sessionRef.current = null;
+        setApprovalError("Uw account is (nog) niet goedgekeurd door de beheerder. Wacht op bevestiging.");
+      } 
+      // Success
+      else {
+        setSession(currentSession);
+        sessionRef.current = currentSession;
         setApprovalError(null);
       }
     } catch (e: any) {
-      console.error("Validation failed", e);
-      await supabase.auth.signOut();
-      setSession(null);
-      setApprovalError(e.message || "Onbekende fout bij validatie.");
+      console.error("Validation failed (timeout/catch)", e);
+      // Bij timeout loggen we niet uit, maar tonen we een retry scherm
+      setApprovalError(e.message || "Verbindingsfout tijdens controleren.");
+      setSession(currentSession);
+      sessionRef.current = currentSession;
     } finally {
       setAuthLoading(false);
+    }
+  };
+
+  const handleRetryValidation = () => {
+    if (session) {
+      setAuthLoading(true);
+      setApprovalError(null);
+      validateSession(session);
+    } else {
+      window.location.reload();
     }
   };
 
@@ -126,15 +158,26 @@ const App: React.FC = () => {
             setAuthLoading(false);
          }
       } else if (event === 'SIGNED_IN' && newSession) {
+         // Fix: Voorkom onnodige 'loading' schermen als we al ingelogd zijn als dezelfde gebruiker.
+         // Dit voorkomt dat de app "flikkert" of vastloopt bij een reconnect.
+         if (sessionRef.current?.user?.id === newSession.user.id) {
+             setSession(newSession);
+             sessionRef.current = newSession;
+             return;
+         }
+         
          setAuthLoading(true);
          await validateSession(newSession);
       } else if (event === 'SIGNED_OUT') {
          setSession(null);
+         sessionRef.current = null;
          setAuthLoading(false);
          setStep('input');
          setGeneratedTest(null);
+         setApprovalError(null);
       } else if (event === 'TOKEN_REFRESHED' && newSession) {
          setSession(newSession);
+         sessionRef.current = newSession;
       }
     });
 
@@ -155,8 +198,8 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     setAuthLoading(true);
+    setApprovalError(null);
     await supabase.auth.signOut();
-    // onAuthStateChange will handle state updates
   };
 
   // Switch taxonomy handler
@@ -259,7 +302,38 @@ const App: React.FC = () => {
     );
   }
 
-  // 2. Auth Screens (if not logged in)
+  // 2. Auth Failed / Retry Screen (Session exists but validation failed)
+  if (session && approvalError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-red-100 p-8 text-center space-y-6">
+           <div className="bg-red-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AlertCircle size={32} className="text-red-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900">Validatie Mislukt</h2>
+          <div className="bg-red-50 text-red-800 p-4 rounded-xl text-sm border border-red-100">
+            {approvalError}
+          </div>
+          <div className="flex flex-col gap-3">
+            <button 
+              onClick={handleRetryValidation}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-200 flex items-center justify-center gap-2"
+            >
+              <RefreshCw size={20} /> Probeer Opnieuw
+            </button>
+            <button 
+              onClick={handleLogout}
+              className="w-full bg-white hover:bg-gray-50 text-gray-700 font-semibold py-3 rounded-xl border border-gray-300 flex items-center justify-center gap-2"
+            >
+              <LogOut size={20} /> Uitloggen
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Login / Register Screens (No session)
   if (!session) {
     return (
       <>
@@ -279,7 +353,7 @@ const App: React.FC = () => {
     );
   }
 
-  // 3. Main App Content (Protected)
+  // 4. Main App Content (Protected & Approved)
   if (step === 'result' && generatedTest) {
     return (
       <>
@@ -288,11 +362,6 @@ const App: React.FC = () => {
       </>
     );
   }
-
-  // Filter available options for dropdown
-  const availableOptions = QUESTION_TYPE_OPTIONS.filter(
-    opt => !selectedQTypes.some(selected => selected.type === opt)
-  );
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 pb-12">
@@ -312,6 +381,7 @@ const App: React.FC = () => {
           </div>
           <div className="flex items-center gap-3">
             <button 
+              type="button"
               onClick={() => setIsFeedbackOpen(true)}
               className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500 hover:bg-indigo-400 rounded-lg text-sm transition-colors border border-indigo-400/30"
             >
@@ -319,6 +389,7 @@ const App: React.FC = () => {
               <span className="hidden sm:inline">Feedback</span>
             </button>
             <button
+              type="button"
               onClick={handleLogout}
               className="flex items-center gap-2 px-3 py-1.5 bg-red-500/80 hover:bg-red-500 rounded-lg text-sm transition-colors border border-red-400/30"
               title="Uitloggen"
@@ -351,12 +422,14 @@ const App: React.FC = () => {
                 {/* Taxonomy Toggle */}
                 <div className="bg-white p-1 rounded-lg border border-gray-200 shadow-sm flex">
                    <button 
+                     type="button"
                      onClick={() => handleTaxonomyChange('RTTI')}
                      className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${taxonomy === 'RTTI' ? 'bg-indigo-600 text-white shadow' : 'text-gray-600 hover:bg-gray-50'}`}
                    >
                      RTTI
                    </button>
                    <button 
+                     type="button"
                      onClick={() => handleTaxonomyChange('KTI')}
                      className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${taxonomy === 'KTI' ? 'bg-indigo-600 text-white shadow' : 'text-gray-600 hover:bg-gray-50'}`}
                    >
@@ -406,6 +479,7 @@ const App: React.FC = () => {
                     <h3>2. Inhoud & Doelen</h3>
                   </div>
                   <button 
+                    type="button"
                     onClick={handleSuggest}
                     disabled={!subject || !level || isSuggesting}
                     className="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors disabled:opacity-50"
@@ -432,7 +506,7 @@ const App: React.FC = () => {
                          </ul>
                        </div>
                      )}
-                     <button onClick={() => setSuggestions(null)} className="text-xs text-green-600 underline mt-2">Sluiten</button>
+                     <button type="button" onClick={() => setSuggestions(null)} className="text-xs text-green-600 underline mt-2">Sluiten</button>
                   </div>
                 )}
 
@@ -542,6 +616,7 @@ const App: React.FC = () => {
                         </div>
                      </div>
                      <button 
+                        type="button"
                         onClick={addQType}
                         disabled={availableOptions.length === 0}
                         className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
@@ -567,6 +642,7 @@ const App: React.FC = () => {
                             <span className="text-gray-500 text-sm">%</span>
                          </div>
                          <button 
+                            type="button"
                             onClick={() => removeQType(item.type)}
                             className="text-gray-400 hover:text-red-500 p-1 rounded-full hover:bg-red-50"
                          >
@@ -622,6 +698,7 @@ const App: React.FC = () => {
 
               <div className="pt-4 flex justify-end">
                 <button
+                  type="button"
                   onClick={handleGenerate}
                   disabled={!isDistValid || !subject || !topics || !isQTypeValid}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-bold text-lg shadow-lg shadow-indigo-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
