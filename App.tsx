@@ -1,13 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from './services/supabaseClient';
 import { DistributionSlider } from './components/DistributionSlider';
 import { TestRenderer } from './components/TestRenderer';
 import { FeedbackModal } from './components/FeedbackModal';
+import { Login } from './components/Login';
+import { Register } from './components/Register';
 import { suggestTopics, generateTest } from './services/geminiService';
 import { TestConfiguration, GeneratedTest, SearchResult, TaxonomyType } from './types';
 import { DEFAULT_RTTI, DEFAULT_KTI, QUESTION_TYPE_OPTIONS } from './constants';
-import { Sparkles, BookOpen, Loader2, Search, AlertCircle, FileText, Settings, Target, CheckCircle, Plus, Trash2, Sliders, MessageSquare } from 'lucide-react';
+import { Sparkles, BookOpen, Loader2, Search, AlertCircle, FileText, Settings, Target, CheckCircle, Plus, Trash2, MessageSquare, LogOut } from 'lucide-react';
+import { Session } from '@supabase/supabase-js';
 
 const App: React.FC = () => {
+  // Auth State
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [showRegister, setShowRegister] = useState(false);
+
   const [step, setStep] = useState<'input' | 'generating' | 'result'>('input');
   
   // Feedback Modal State
@@ -46,13 +55,33 @@ const App: React.FC = () => {
   const [generatedTest, setGeneratedTest] = useState<GeneratedTest | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Auth Listener
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
   // Switch taxonomy handler
   const handleTaxonomyChange = (type: TaxonomyType) => {
     setTaxonomy(type);
     setDistribution(type === 'RTTI' ? DEFAULT_RTTI : DEFAULT_KTI);
   };
 
-  const totalDistPercentage = Object.values(distribution).reduce((a: any, b: any) => a + b, 0);
+  const totalDistPercentage = (Object.values(distribution) as number[]).reduce((a, b) => a + b, 0);
   const isDistValid = totalDistPercentage === 100;
   
   const totalQTypePercentage = selectedQTypes.reduce((sum, item) => sum + item.percentage, 0);
@@ -127,12 +156,30 @@ const App: React.FC = () => {
     }
   };
 
+  // 1. Loading State for Auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Loader2 size={48} className="animate-spin text-indigo-600" />
+      </div>
+    );
+  }
+
+  // 2. Auth Screens (if not logged in)
+  if (!session) {
+    return showRegister ? (
+      <Register onSwitch={() => setShowRegister(false)} />
+    ) : (
+      <Login onSwitch={() => setShowRegister(true)} />
+    );
+  }
+
+  // 3. Main App Content (Protected)
   if (step === 'result' && generatedTest) {
     return (
       <>
         <TestRenderer test={generatedTest} onBack={() => setStep('input')} />
         <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
-        {/* Floating feedback button for result page if needed, or rely on nav if visible */}
       </>
     );
   }
@@ -166,9 +213,14 @@ const App: React.FC = () => {
               <MessageSquare size={16} />
               <span className="hidden sm:inline">Feedback</span>
             </button>
-            <div className="text-sm font-medium bg-indigo-700 px-3 py-1 rounded-full border border-indigo-500 hidden sm:block">
-              Powered by Gemini
-            </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-3 py-1.5 bg-red-500/80 hover:bg-red-500 rounded-lg text-sm transition-colors border border-red-400/30"
+              title="Uitloggen"
+            >
+              <LogOut size={16} />
+              <span className="hidden sm:inline">Uitloggen</span>
+            </button>
           </div>
         </div>
       </nav>
