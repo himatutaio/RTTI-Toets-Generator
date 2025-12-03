@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { LogIn, AlertCircle, Loader2 } from 'lucide-react';
@@ -12,27 +13,81 @@ export const Login: React.FC<Props> = ({ onSwitch }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const getErrorMessage = (err: any): string => {
+    if (!err) return "Er is een onbekende fout opgetreden.";
+    if (typeof err === 'string') return err;
+    if (err instanceof Error) return err.message;
+    if (err?.message) return err.message;
+    if (err?.error_description) return err.error_description;
+    try {
+      const json = JSON.stringify(err);
+      if (json !== '{}' && json !== '[]') return json;
+    } catch (e) {}
+    return String(err);
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      // 1. Eerst inloggen bij Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      if (error) {
-        if (error.message.includes('Invalid login credentials')) {
+      if (authError) {
+        if (authError.message.includes('Invalid login credentials')) {
           setError('Je e-mailadres of wachtwoord klopt niet.');
         } else {
-          setError('Er ging iets mis bij het inloggen. Probeer het later nog eens.');
+          setError(getErrorMessage(authError));
         }
+        setLoading(false);
+        return;
       }
-    } catch (err) {
-      setError('Er is een onverwachte fout opgetreden.');
-    } finally {
+
+      // 2. Controleren of de gebruiker is goedgekeurd in de database
+      const { data: requestData, error: requestError } = await supabase
+        .from('school_requests')
+        .select('status')
+        .eq('email', email)
+        .maybeSingle();
+
+      if (requestError) {
+         console.error("Login verification check failed:", requestError);
+         await supabase.auth.signOut();
+         
+         const msg = getErrorMessage(requestError);
+         if (msg.includes('relation') && msg.includes('does not exist')) {
+            setError('Systeemfout: Toegangstabel ontbreekt. Neem contact op met de beheerder.');
+         } else {
+            setError(`Fout bij controleren rechten: ${msg}`);
+         }
+         
+         setLoading(false);
+         return;
+      }
+
+      // Als er geen record is, of de status is niet 'approved'
+      if (!requestData || requestData.status !== 'approved') {
+        await supabase.auth.signOut();
+        
+        if (requestData && requestData.status === 'pending') {
+          setError('Je account is nog in behandeling. Wacht op goedkeuring van de beheerder.');
+        } else {
+          setError('Je account heeft geen toegang (meer) tot deze applicatie. Neem contact op met de beheerder.');
+        }
+        setLoading(false);
+        return;
+      }
+
+      // 3. Alles OK
+      
+    } catch (err: any) {
+      console.error("Unexpected Login error:", err);
+      setError(getErrorMessage(err));
       setLoading(false);
     }
   };
@@ -90,12 +145,12 @@ export const Login: React.FC<Props> = ({ onSwitch }) => {
         </form>
 
         <div className="text-center pt-4 border-t border-gray-100">
-          <p className="text-gray-600 mb-3">Heb je nog geen account?</p>
+          <p className="text-gray-600 mb-3">Nog geen toegang?</p>
           <button
             onClick={onSwitch}
             className="text-indigo-600 font-bold hover:text-indigo-800 transition-colors"
           >
-            Maak hier een account aan
+            Vraag hier toegang aan
           </button>
         </div>
       </div>

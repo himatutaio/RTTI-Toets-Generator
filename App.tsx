@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { supabase } from './services/supabaseClient';
 import { DistributionSlider } from './components/DistributionSlider';
@@ -16,6 +17,7 @@ const App: React.FC = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showRegister, setShowRegister] = useState(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
 
   const [step, setStep] = useState<'input' | 'generating' | 'result'>('input');
   
@@ -55,17 +57,63 @@ const App: React.FC = () => {
   const [generatedTest, setGeneratedTest] = useState<GeneratedTest | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Validate user approval status
+  const validateSession = async (currentSession: Session | null) => {
+    if (!currentSession?.user?.email) {
+      setAuthLoading(false);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('school_requests')
+        .select('status')
+        .eq('email', currentSession.user.email)
+        .maybeSingle(); 
+
+      // If validation error (e.g. table not found, RLS) or not approved
+      if (error) {
+        console.error("Session validation error:", error);
+        await supabase.auth.signOut();
+        setSession(null);
+        
+        let msg = "Fout bij valideren status";
+        if (error.message) msg += `: ${error.message}`;
+        setApprovalError(msg);
+      } else if (!data || data.status !== 'approved') {
+        await supabase.auth.signOut();
+        setSession(null);
+        setApprovalError("Uw account is (nog) niet goedgekeurd.");
+      } else {
+        setSession(currentSession);
+      }
+    } catch (e: any) {
+      console.error("Validation failed", e);
+      await supabase.auth.signOut();
+      setSession(null);
+      setApprovalError(e.message || "Onbekende fout bij validatie.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   // Auth Listener
   useEffect(() => {
+    // Check current session on mount
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setAuthLoading(false);
+      if (session) {
+        validateSession(session);
+      } else {
+        setAuthLoading(false);
+      }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
+      if (!authLoading) {
+         setSession(session);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -73,6 +121,10 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    setSession(null);
+    setStep('input');
+    setGeneratedTest(null);
+    setApprovalError(null);
   };
 
   // Switch taxonomy handler
@@ -167,10 +219,21 @@ const App: React.FC = () => {
 
   // 2. Auth Screens (if not logged in)
   if (!session) {
-    return showRegister ? (
-      <Register onSwitch={() => setShowRegister(false)} />
-    ) : (
-      <Login onSwitch={() => setShowRegister(true)} />
+    return (
+      <>
+        {approvalError && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-red-100 border border-red-200 text-red-800 px-6 py-3 rounded-xl shadow-lg flex items-center gap-2 animate-fadeIn">
+            <AlertCircle size={20} />
+            {approvalError}
+            <button onClick={() => setApprovalError(null)} className="ml-2 font-bold hover:text-red-950">✕</button>
+          </div>
+        )}
+        {showRegister ? (
+          <Register onSwitch={() => setShowRegister(false)} />
+        ) : (
+          <Login onSwitch={() => setShowRegister(true)} />
+        )}
+      </>
     );
   }
 
