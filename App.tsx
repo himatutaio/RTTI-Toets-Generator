@@ -1,14 +1,17 @@
-
 import React, { useState } from 'react';
 import { DistributionSlider } from './components/DistributionSlider';
 import { TestRenderer } from './components/TestRenderer';
+import { FeedbackModal } from './components/FeedbackModal';
 import { suggestTopics, generateTest } from './services/geminiService';
 import { TestConfiguration, GeneratedTest, SearchResult, TaxonomyType } from './types';
 import { DEFAULT_RTTI, DEFAULT_KTI, QUESTION_TYPE_OPTIONS } from './constants';
-import { Sparkles, BookOpen, Loader2, Search, AlertCircle, FileText, Settings, Target, CheckCircle, Plus, Trash2, Sliders } from 'lucide-react';
+import { Sparkles, BookOpen, Loader2, Search, AlertCircle, FileText, Settings, Target, CheckCircle, Plus, Trash2, Sliders, MessageSquare } from 'lucide-react';
 
 const App: React.FC = () => {
   const [step, setStep] = useState<'input' | 'generating' | 'result'>('input');
+  
+  // Feedback Modal State
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   
   // Taxonomy State
   const [taxonomy, setTaxonomy] = useState<TaxonomyType>('RTTI');
@@ -125,7 +128,13 @@ const App: React.FC = () => {
   };
 
   if (step === 'result' && generatedTest) {
-    return <TestRenderer test={generatedTest} onBack={() => setStep('input')} />;
+    return (
+      <>
+        <TestRenderer test={generatedTest} onBack={() => setStep('input')} />
+        <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
+        {/* Floating feedback button for result page if needed, or rely on nav if visible */}
+      </>
+    );
   }
 
   // Filter available options for dropdown
@@ -135,6 +144,8 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 pb-12">
+      <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
+      
       {/* Navbar */}
       <nav className="bg-indigo-600 text-white shadow-lg sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -144,11 +155,20 @@ const App: React.FC = () => {
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-tight">Toets Generator</h1>
-              <p className="text-xs text-indigo-200">AI-ondersteunde toetsconstructie</p>
+              <p className="text-xs text-indigo-200">Meer tijd voor echt onderwijs</p>
             </div>
           </div>
-          <div className="text-sm font-medium bg-indigo-700 px-3 py-1 rounded-full border border-indigo-500">
-            Powered by Gemini
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => setIsFeedbackOpen(true)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500 hover:bg-indigo-400 rounded-lg text-sm transition-colors border border-indigo-400/30"
+            >
+              <MessageSquare size={16} />
+              <span className="hidden sm:inline">Feedback</span>
+            </button>
+            <div className="text-sm font-medium bg-indigo-700 px-3 py-1 rounded-full border border-indigo-500 hidden sm:block">
+              Powered by Gemini
+            </div>
           </div>
         </div>
       </nav>

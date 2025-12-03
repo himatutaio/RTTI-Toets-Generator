@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { TestConfiguration, GeneratedTest, SearchResult } from "../types";
 
@@ -37,8 +36,8 @@ export const suggestTopics = async (subject: string, level: string): Promise<{ t
     if (groundingChunks) {
        sources = groundingChunks
         .map((chunk) => chunk.web)
-        .filter((web): web is { title: string; uri: string } => !!web)
-        .map((web) => ({ title: web.title || "Bron", uri: web.uri || "#" }));
+        .filter((web) => !!web)
+        .map((web) => ({ title: web?.title || "Bron", uri: web?.uri || "#" }));
     }
 
     return { topics: text, sources };

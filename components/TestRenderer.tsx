@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { GeneratedTest, Question } from '../types';
-import { Printer, CheckCircle, Brain, BookOpen, BarChart2, Layers, FileText, Share2, Copy, Check, ChevronDown } from 'lucide-react';
+import { Printer, CheckCircle, Brain, BookOpen, BarChart2, Layers, FileText, Share2, Copy, Check, ChevronDown, Mail, MessageCircle, MoreHorizontal } from 'lucide-react';
 
 interface Props {
   test: GeneratedTest;
@@ -121,6 +121,43 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
     });
   };
 
+  const handleSocialShare = (platform: 'email' | 'whatsapp' | 'native') => {
+    const text = formatContentAsText('full');
+    const subject = `Toets: ${test.title}`;
+    
+    // Native Share (Mobile)
+    if (platform === 'native' && navigator.share) {
+      navigator.share({
+        title: subject,
+        text: text,
+      }).catch(console.error);
+      setIsShareOpen(false);
+      return;
+    }
+
+    const encodedSubject = encodeURIComponent(subject);
+    
+    if (platform === 'email') {
+      const encodedBody = encodeURIComponent(text);
+      // Limit body length for mailto links to avoid browser issues
+      const finalUrl = `mailto:?subject=${encodedSubject}&body=${encodedBody.slice(0, 1800)}${encodedBody.length > 1800 ? '...' : ''}`;
+      window.location.href = finalUrl;
+    } else if (platform === 'whatsapp') {
+      // WhatsApp via URL often fails with very large texts.
+      // Strategy: Copy text to clipboard, then open WhatsApp with a prompt.
+      navigator.clipboard.writeText(text).then(() => {
+        setCopyStatus('copied');
+        // Small delay to ensure copy happens
+        setTimeout(() => {
+           const introText = encodeURIComponent(`Hier is de gegenereerde ${test.taxonomy}-toets "${test.title}". (De volledige inhoud is naar je klembord gekopieerd, plak deze in het bericht)`);
+           window.open(`https://wa.me/?text=${introText}`, '_blank');
+           setIsShareOpen(false);
+           setCopyStatus('idle');
+        }, 500);
+      });
+    }
+  };
+
   const renderBadge = (label: string) => {
     const colors: Record<string, string> = {
       'R': 'bg-blue-100 text-blue-800 border-blue-200',
@@ -212,6 +249,38 @@ export const TestRenderer: React.FC<Props> = ({ test, onBack }) => {
                       <span className="text-xs text-gray-500">Via browser print menu</span>
                     </div>
                   </button>
+
+                  {/* Social Share Section */}
+                  <div className="border-t border-gray-100 mt-1 pt-1 bg-gray-50">
+                    <p className="px-4 py-1 text-xs font-bold text-gray-400 uppercase tracking-wider">Versturen via...</p>
+                    
+                    <button 
+                      onClick={() => handleSocialShare('email')}
+                      className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
+                    >
+                       <div className="bg-orange-50 p-1.5 rounded text-orange-600"><Mail size={16} /></div>
+                       <span className="font-medium">E-mail</span>
+                    </button>
+
+                    <button 
+                      onClick={() => handleSocialShare('whatsapp')}
+                      className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
+                    >
+                       <div className="bg-green-50 p-1.5 rounded text-green-600"><MessageCircle size={16} /></div>
+                       <span className="font-medium">WhatsApp</span>
+                    </button>
+
+                    {/* Show native share if supported (usually mobile) */}
+                    {typeof navigator.share === 'function' && (
+                       <button 
+                         onClick={() => handleSocialShare('native')}
+                         className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
+                       >
+                          <div className="bg-purple-50 p-1.5 rounded text-purple-600"><MoreHorizontal size={16} /></div>
+                          <span className="font-medium">Andere apps...</span>
+                       </button>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
