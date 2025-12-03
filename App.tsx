@@ -86,6 +86,7 @@ const App: React.FC = () => {
         setApprovalError("Uw account is (nog) niet goedgekeurd.");
       } else {
         setSession(currentSession);
+        setApprovalError(null);
       }
     } catch (e: any) {
       console.error("Validation failed", e);
@@ -99,32 +100,50 @@ const App: React.FC = () => {
 
   // Auth Listener
   useEffect(() => {
-    // Check current session on mount
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        validateSession(session);
-      } else {
-        setAuthLoading(false);
-      }
-    });
+    let isMounted = true;
 
+    // 1. Check current session on mount
+    const initAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (isMounted) {
+        if (session) {
+          await validateSession(session);
+        } else {
+          setAuthLoading(false);
+        }
+      }
+    };
+    initAuth();
+
+    // 2. Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!authLoading) {
-         setSession(session);
+    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      if (!isMounted) return;
+
+      if (event === 'SIGNED_IN' && newSession) {
+         // User just logged in (e.g. from Login component)
+         setAuthLoading(true);
+         await validateSession(newSession);
+      } else if (event === 'SIGNED_OUT') {
+         setSession(null);
+         setAuthLoading(false);
+         setStep('input');
+         setGeneratedTest(null);
+      } else if (event === 'TOKEN_REFRESHED' && newSession) {
+         setSession(newSession);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setSession(null);
-    setStep('input');
-    setGeneratedTest(null);
-    setApprovalError(null);
+    // State updates handled by onAuthStateChange(SIGNED_OUT)
   };
 
   // Switch taxonomy handler
@@ -212,7 +231,10 @@ const App: React.FC = () => {
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader2 size={48} className="animate-spin text-indigo-600" />
+        <div className="flex flex-col items-center gap-4">
+           <Loader2 size={48} className="animate-spin text-indigo-600" />
+           <p className="text-gray-500 font-medium">Bezig met controleren...</p>
+        </div>
       </div>
     );
   }
@@ -222,10 +244,10 @@ const App: React.FC = () => {
     return (
       <>
         {approvalError && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-red-100 border border-red-200 text-red-800 px-6 py-3 rounded-xl shadow-lg flex items-center gap-2 animate-fadeIn">
-            <AlertCircle size={20} />
-            {approvalError}
-            <button onClick={() => setApprovalError(null)} className="ml-2 font-bold hover:text-red-950">✕</button>
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-red-100 border border-red-200 text-red-800 px-6 py-3 rounded-xl shadow-lg flex items-center gap-2 animate-fadeIn max-w-[90vw]">
+            <AlertCircle size={20} className="flex-shrink-0" />
+            <span className="text-sm font-medium">{approvalError}</span>
+            <button onClick={() => setApprovalError(null)} className="ml-2 font-bold hover:text-red-950 px-2">✕</button>
           </div>
         )}
         {showRegister ? (
