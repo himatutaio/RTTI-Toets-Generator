@@ -81,9 +81,9 @@ const App: React.FC = () => {
     }
 
     try {
-      // Create a timeout promise (15 seconden is genoeg, 45s is te lang)
+      // Create a timeout promise (30 seconden is beter voor cold starts)
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Controle duurt te lang. Controleer uw verbinding of probeer het opnieuw.")), 15000)
+        setTimeout(() => reject(new Error("Het systeem start op (dit kan tot 30 sec duren). Controleer uw verbinding of probeer het opnieuw.")), 30000)
       );
 
       // Perform DB check

@@ -1,5 +1,5 @@
 {
-  "name": "RTTI-Toets Generator",
+  "name": "RTTI/KTI",
   "description": "Een AI-gestuurde tool voor docenten om RTTI-toetsen, matrices en antwoordmodellen te genereren met Google Gemini.",
   "requestFramePermissions": []
 }

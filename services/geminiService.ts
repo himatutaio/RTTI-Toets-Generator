@@ -6,6 +6,38 @@ const cleanJsonString = (str: string) => {
   return str.replace(/```json\n|\n```/g, "").replace(/```/g, "").trim();
 };
 
+// Robuuste foutafhandeling voor Gemini API errors
+const handleGeminiError = (error: any): never => {
+  console.error("Gemini API Error details:", JSON.stringify(error, null, 2));
+  
+  const msg = error?.message || error?.toString() || "";
+  // Check for various error structures (status code or error code inside message)
+  const status = error?.status || error?.code;
+
+  if (msg.includes("API_KEY_IP_ADDRESS_BLOCKED") || msg.includes("IP address restriction")) {
+    throw new Error("Toegang geweigerd: De API-sleutel heeft een IP-restrictie. Verwijder de IP-beperkingen in de Google Cloud Console of voeg dit IP-adres toe.");
+  }
+  
+  if (msg.includes("API_KEY_INVALID")) {
+      throw new Error("De geconfigureerde API-sleutel is ongeldig.");
+  }
+
+  if (status === 403 || msg.includes("403") || msg.includes("PERMISSION_DENIED")) {
+    throw new Error("Toegang geweigerd (403). Controleer of de API-sleutel geldig is en toegang heeft tot de Google Generative Language API.");
+  }
+  
+  if (status === 429 || msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED")) {
+    throw new Error("Het limiet van de AI-service is bereikt (Quota Exceeded). Probeer het over een minuut opnieuw.");
+  }
+
+  if (status === 500 || msg.includes("500") || msg.includes("INTERNAL")) {
+    throw new Error("Interne fout bij de AI-service van Google. Probeer het later opnieuw.");
+  }
+
+  // Fallback generic error
+  throw new Error("Kon de toets niet genereren door een onbekende fout. Controleer de console voor details.");
+};
+
 export const suggestTopics = async (subject: string, level: string): Promise<{ topics: string; sources: SearchResult[] }> => {
   if (!process.env.API_KEY) {
     throw new Error("API Key ontbreekt");
@@ -41,9 +73,13 @@ export const suggestTopics = async (subject: string, level: string): Promise<{ t
     }
 
     return { topics: text, sources };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Topic suggestion failed:", error);
-    return { topics: "Kon geen onderwerpen ophalen. Probeer het opnieuw.", sources: [] };
+    // Specifieke check voor IP fouten bij suggesties, zodat de gebruiker weet wat er mis is in het inputveld
+    if (error?.message?.includes("IP address restriction")) {
+        return { topics: "Fout: API Key IP restrictie. Pas dit aan in Google Cloud Console.", sources: [] };
+    }
+    return { topics: "Kon geen onderwerpen ophalen. Probeer het opnieuw of vul zelf in.", sources: [] };
   }
 };
 
@@ -203,7 +239,6 @@ export const generateTest = async (config: TestConfiguration): Promise<Generated
     const jsonStr = cleanJsonString(response.text || "{}");
     return JSON.parse(jsonStr) as GeneratedTest;
   } catch (error) {
-    console.error("Test generation failed:", error);
-    throw new Error("Kon de toets niet genereren. Controleer de invoer en probeer het opnieuw.");
+    handleGeminiError(error);
   }
 };
