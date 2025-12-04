@@ -13,29 +13,35 @@ const handleGeminiError = (error: any): never => {
   const msg = error?.message || error?.toString() || "";
   // Check for various error structures (status code or error code inside message)
   const status = error?.status || error?.code;
+  const reason = error?.details?.[0]?.reason || "";
 
-  if (msg.includes("API_KEY_IP_ADDRESS_BLOCKED") || msg.includes("IP address restriction")) {
-    throw new Error("Toegang geweigerd: De API-sleutel heeft een IP-restrictie. Verwijder de IP-beperkingen in de Google Cloud Console of voeg dit IP-adres toe.");
+  // 1. Expliciete IP Blokkade (via message of reason)
+  if (msg.includes("API_KEY_IP_ADDRESS_BLOCKED") || msg.includes("IP address restriction") || reason === "API_KEY_IP_ADDRESS_BLOCKED") {
+    throw new Error("Toegang geweigerd: De API-sleutel heeft een IP-restrictie. Verwijder de IP-beperkingen in de Google Cloud Console of voeg het huidige IP-adres toe.");
   }
   
+  // 2. Ongeldige API Key
   if (msg.includes("API_KEY_INVALID")) {
       throw new Error("De geconfigureerde API-sleutel is ongeldig.");
   }
 
+  // 3. Permission Denied (403) - Vaak een stille IP blokkade of verkeerde API rechten
   if (status === 403 || msg.includes("403") || msg.includes("PERMISSION_DENIED")) {
-    throw new Error("Toegang geweigerd (403). Controleer of de API-sleutel geldig is en toegang heeft tot de Google Generative Language API.");
+    throw new Error("Toegang geweigerd (403). Dit wordt meestal veroorzaakt door een IP-restrictie op de API Key. Controleer uw Google Cloud Console > Credentials.");
   }
   
+  // 4. Quota overschreden
   if (status === 429 || msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED")) {
     throw new Error("Het limiet van de AI-service is bereikt (Quota Exceeded). Probeer het over een minuut opnieuw.");
   }
 
+  // 5. Server fouten
   if (status === 500 || msg.includes("500") || msg.includes("INTERNAL")) {
     throw new Error("Interne fout bij de AI-service van Google. Probeer het later opnieuw.");
   }
 
   // Fallback generic error
-  throw new Error("Kon de toets niet genereren door een onbekende fout. Controleer de console voor details.");
+  throw new Error(`Kon de toets niet genereren. Fout: ${msg || 'Onbekend (status ' + status + ')'}`);
 };
 
 export const suggestTopics = async (subject: string, level: string): Promise<{ topics: string; sources: SearchResult[] }> => {
@@ -75,9 +81,9 @@ export const suggestTopics = async (subject: string, level: string): Promise<{ t
     return { topics: text, sources };
   } catch (error: any) {
     console.error("Topic suggestion failed:", error);
-    // Specifieke check voor IP fouten bij suggesties, zodat de gebruiker weet wat er mis is in het inputveld
-    if (error?.message?.includes("IP address restriction")) {
-        return { topics: "Fout: API Key IP restrictie. Pas dit aan in Google Cloud Console.", sources: [] };
+    // Specifieke check voor IP fouten bij suggesties
+    if (error?.message?.includes("IP address restriction") || error?.status === 403) {
+        return { topics: "Fout: Toegang geweigerd (403). Waarschijnlijk een IP-restrictie op de API Key.", sources: [] };
     }
     return { topics: "Kon geen onderwerpen ophalen. Probeer het opnieuw of vul zelf in.", sources: [] };
   }
